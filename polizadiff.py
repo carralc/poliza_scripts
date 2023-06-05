@@ -60,6 +60,7 @@ def line_has_match(line: PolizaLine, domain: list, tolerance=0.5) -> bool:
                 return True
             else:
                 log.warning("Matching amounts found for concepts %s, %s but with different accounts", target_line.concept, line.concept)
+                return True
     return False
 
 
