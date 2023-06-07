@@ -3,6 +3,10 @@ from collections import namedtuple
 import json
 import sys
 from unidecode import unidecode
+import csv
+import datetime as dt
+
+OUT_FILE_NAME = "pos_categ_diff_%d%m%Y%H%M.csv"
 
 PosVillaProduct = namedtuple("PosVillaProduct", ["pos_villa_identifier", "name", "family"])
 OdooProduct = namedtuple("OdooProduct", ["product_template_id","name", "pos_categ_id"])
@@ -33,10 +37,20 @@ def product_categories_match(pos_villa_product: PosVillaProduct, odoo_product: O
     return (villa_categ and odoo_categ and (villa_categ in odoo_categ or odoo_categ in villa_categ))
 
 def main(env):
-    products_rel = get_market_products_rel(env)
-    for pos_villa_product, odoo_product in products_rel:
-        if not product_categories_match(pos_villa_product, odoo_product):
-            print(odoo_product.name)
-            print(f"Odoo categ: {odoo_product.pos_categ_id or 'SIN CATEGORIA'}")
-            print(f"POS Villa categ: {pos_villa_product.family or 'SIN CATEGORIA'}")
-            print("-" * 30)
+    now = dt.datetime.now()
+    filename = now.strftime(OUT_FILE_NAME)
+    with open(filename, "w") as outfile:
+        writer = csv.writer(outfile, quoting=csv.QUOTE_ALL)
+        HEADERS = ["product_template_id", "Odoo Name", "pos_villa_identifier", "POS Villa Name", "Categ Odoo (pos_categ_id)", "Familia POS Villa", "Status"]
+        writer.writerow(HEADERS)
+        products_rel = get_market_products_rel(env)
+        for pos_villa_product, odoo_product in products_rel:
+            if not product_categories_match(pos_villa_product, odoo_product):
+                product_template_id = odoo_product.product_template_id or "SIN EQUIVALENTE EN ODOO"
+                odoo_name = odoo_product.name or "SIN EQUIVALENTE EN ODOO"
+                pos_villa_id = pos_villa_product.pos_villa_identifier or "SIN EQUIVALENTE EN POS VILLA"
+                pos_villa_name = pos_villa_product.name or  "SIN EQUIVALENTE EN POS VILLA"
+                categ_odoo = odoo_product.pos_categ_id or "SIN CATEGORIA EN ODOO"
+                familia_pos_villa = pos_villa_product.family or "SIN CATEGORIA"
+                status = "TODO"
+                writer.writerow([product_template_id, odoo_name, pos_villa_id, pos_villa_name, categ_odoo, familia_pos_villa, status])
