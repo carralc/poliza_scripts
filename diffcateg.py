@@ -9,7 +9,7 @@ import datetime as dt
 OUT_FILE_NAME = "pos_categ_diff_%d%m%Y%H%M.csv"
 
 PosVillaProduct = namedtuple("PosVillaProduct", ["pos_villa_identifier", "name", "family"])
-OdooProduct = namedtuple("OdooProduct", ["product_template_id","name", "pos_categ_id"])
+OdooProduct = namedtuple("OdooProduct", ["product_template_id","name", "pos_categ_id", "parent_category"])
 VillaOdooRelation = namedtuple("VillaOdooRelation", ["pos_villa_product", "odoo_product"])
 
 def record_to_pos_villa_product(record) -> PosVillaProduct:
@@ -27,7 +27,7 @@ def get_market_products_rel(env) -> list:
     for legacy_product in legacy_market_products:
         pos_villa_product = record_to_pos_villa_product(legacy_product)
         odoo_product = legacy_product.product_tmpl_id
-        odoo_product = OdooProduct(odoo_product.id, odoo_product.name, odoo_product.pos_categ_id.name)
+        odoo_product = OdooProduct(odoo_product.id, odoo_product.name, odoo_product.pos_categ_id.name, odoo_product.pos_categ_id.parent_id.name)
         relations.append(VillaOdooRelation(pos_villa_product, odoo_product))
     return relations
 
@@ -41,7 +41,7 @@ def main(env):
     filename = now.strftime(OUT_FILE_NAME)
     with open(filename, "w") as outfile:
         writer = csv.writer(outfile, quoting=csv.QUOTE_ALL)
-        HEADERS = ["product_template_id", "Odoo Name", "pos_villa_identifier", "POS Villa Name", "Categ Odoo (pos_categ_id)", "Familia POS Villa", "Status"]
+        HEADERS = ["product_template_id", "Odoo Name", "pos_villa_identifier", "POS Villa Name", "Parent Category", "Categ Odoo (pos_categ_id)", "Familia POS Villa", "Status"]
         writer.writerow(HEADERS)
         products_rel = get_market_products_rel(env)
         for pos_villa_product, odoo_product in products_rel:
@@ -49,8 +49,9 @@ def main(env):
                 product_template_id = odoo_product.product_template_id or "SIN EQUIVALENTE EN ODOO"
                 odoo_name = odoo_product.name or "SIN EQUIVALENTE EN ODOO"
                 pos_villa_id = pos_villa_product.pos_villa_identifier or "SIN EQUIVALENTE EN POS VILLA"
-                pos_villa_name = pos_villa_product.name or  "SIN EQUIVALENTE EN POS VILLA"
+                pos_villa_name = pos_villa_product.name or "SIN EQUIVALENTE EN POS VILLA"
+                parent_category = odoo_product.parent_category or "SIN CATEGORIA"
                 categ_odoo = odoo_product.pos_categ_id or "SIN CATEGORIA EN ODOO"
                 familia_pos_villa = pos_villa_product.family or "SIN CATEGORIA"
                 status = "TODO"
-                writer.writerow([product_template_id, odoo_name, pos_villa_id, pos_villa_name, categ_odoo, familia_pos_villa, status])
+                writer.writerow([product_template_id, odoo_name, pos_villa_id, pos_villa_name, parent_category, categ_odoo, familia_pos_villa, status])
