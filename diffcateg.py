@@ -54,4 +54,5 @@ def main(env):
                 categ_odoo = odoo_product.pos_categ_id or "SIN CATEGORIA EN ODOO"
                 familia_pos_villa = pos_villa_product.family or "SIN CATEGORIA"
                 status = "TODO"
-                writer.writerow([product_template_id, odoo_name, pos_villa_id, pos_villa_name, parent_category, categ_odoo, familia_pos_villa, status])
+                if odoo_product.name:
+                    writer.writerow([product_template_id, odoo_name, pos_villa_id, pos_villa_name, parent_category, categ_odoo, familia_pos_villa, status])
