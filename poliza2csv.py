@@ -1,8 +1,9 @@
 #!/bin/python3
 import sys
 from collections import namedtuple
+import re
 
-PolizaLine = namedtuple("PolizaLine", ["account", "concept", "amount"])
+PolizaLine = namedtuple("PolizaLine", ["account", "concept", "sign", "amount", "type"])
 
 SKIP_FIRST = 2
 EXCLUDED_CONCEPTS = [
@@ -38,6 +39,7 @@ EXCLUDED_CONCEPTS = [
 'ACUMUL/RENTA DE PELICULAS',
 'Graba-Desc. s/venta Suministro',
 'ACUMUL/POR OTROS',
+'ACUMUL/OTROS',
 'ACUMUL/INGRESOS HABITACIONES A',
 'PAQ MLP PREARRIVAL 99 USD ALIM',
 'Graba-Desc. s/venta Masajes',
@@ -84,8 +86,16 @@ def process_line(line: str) -> PolizaLine:
         return None
     account = line[0:ACCOUNT_LEN].strip()
     concept = line[ACCOUNT_LEN:ACCOUNT_LEN+CONCEPT_LEN].strip()
-    amount = line[ACCOUNT_LEN+CONCEPT_LEN:].strip()
-    return PolizaLine(account, concept, amount)
+    amount_str = line[ACCOUNT_LEN+CONCEPT_LEN:].strip()
+    sign, amount, amount_type = process_amount(amount_str)
+    return PolizaLine(account, concept, sign, amount, amount_type)
+
+def process_amount(amount: str) -> tuple:
+    amount_matcher = re.compile(r"((?P<sign>-)*(?P<amount>\d+\.\d+))(?P<type>a|c)")
+    amount_match = amount_matcher.search(amount)
+    sign = amount_match["sign"] or "+"
+    return (sign, amount_match["amount"], amount_match["type"])
+
 
 
 def main(argv):
@@ -99,9 +109,9 @@ def main(argv):
         for line in input_file:
             line_vals = process_line(line)
             if line_vals:
-                account, concept, amount = line_vals
+                account, concept, sign, amount, amount_type = line_vals
                 if not any(concept in excluded_concept for excluded_concept in EXCLUDED_CONCEPTS):
-                    print(f"'{account}','{concept}','{amount}'")
+                    print(f"'{account}','{concept}','{(sign if sign == '-' else '') + amount + amount_type}'")
 
 
 if __name__ == "__main__":
