@@ -6,7 +6,8 @@ from unidecode import unidecode
 import csv
 import datetime as dt
 
-OUT_FILE_NAME = "pos_categ_diff_%d%m%Y%H%M.csv"
+DIFF_CATEG_OUT_FILE_NAME = "pos_categ_diff_%d%m%Y%H%M.csv"
+PRODUCT_CATALOG_OUT_FILE_NAME = "product_catalog_%d%m%Y%H%M.csv"
 
 PosVillaProduct = namedtuple("PosVillaProduct", ["pos_villa_identifier", "name", "family"])
 OdooProduct = namedtuple("OdooProduct", ["product_template_id","name", "pos_categ_id", "parent_category", "active"])
@@ -31,6 +32,14 @@ def get_market_products_rel(env) -> list:
         relations.append(VillaOdooRelation(pos_villa_product, odoo_product))
     return relations
 
+def get_all_odoo_products(env) -> list:
+    product = env["product.product"]
+    odoo_products = []
+    for odoo_product in product.search([]):
+        odoo_product = OdooProduct(odoo_product.id, odoo_product.name, odoo_product.pos_categ_id.name, odoo_product.pos_categ_id.parent_id.name, odoo_product.active)
+        odoo_products.append(odoo_product)
+    return odoo_products
+
 def product_categories_match(pos_villa_product: PosVillaProduct, odoo_product: OdooProduct) -> bool:
     villa_categ = pos_villa_product.family and unidecode(pos_villa_product.family.lower())
     odoo_categ = odoo_product.pos_categ_id and unidecode(odoo_product.pos_categ_id.lower())
@@ -38,8 +47,8 @@ def product_categories_match(pos_villa_product: PosVillaProduct, odoo_product: O
 
 def main(env):
     now = dt.datetime.now()
-    filename = now.strftime(OUT_FILE_NAME)
-    with open(filename, "w") as outfile:
+    diff_filename = now.strftime(DIFF_CATEG_OUT_FILE_NAME)
+    with open(diff_filename, "w") as outfile:
         writer = csv.writer(outfile, quoting=csv.QUOTE_ALL)
         HEADERS = ["product_template_id", "Odoo Name", "pos_villa_identifier", "POS Villa Name", "Parent Category", "Categ Odoo (pos_categ_id)", "active", "Familia POS Villa", "Status"]
         writer.writerow(HEADERS)
@@ -57,3 +66,13 @@ def main(env):
                 status = "TODO"
                 if odoo_product.name:
                     writer.writerow([product_template_id, odoo_name, pos_villa_id, pos_villa_name, parent_category, categ_odoo, active, familia_pos_villa, status])
+
+    catalog_filename = now.strftime(PRODUCT_CATALOG_OUT_FILE_NAME)
+    with open(catalog_filename, "w") as outfile:
+        writer = csv.writer(outfile, quoting=csv.QUOTE_ALL)
+        HEADERS = ["id", "Name", "Parent Category", "Category", "Active"]
+        writer.writerow(HEADERS)
+        all_odoo_products = get_all_odoo_products(env)
+        for product in all_odoo_products:
+            id, name, categ, parent_categ, active = product
+            writer.writerow([id, name, parent_categ or "SIN CATEGORIA" , categ or "SIN CATEGORIA", active])
