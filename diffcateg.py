@@ -12,6 +12,7 @@ PRODUCT_CATALOG_OUT_FILE_NAME = "product_catalog_%d%m%Y%H%M.csv"
 PosVillaProduct = namedtuple("PosVillaProduct", ["pos_villa_identifier", "name", "family"])
 OdooProduct = namedtuple("OdooProduct", ["product_template_id","name", "pos_categ_id", "parent_category", "active"])
 VillaOdooRelation = namedtuple("VillaOdooRelation", ["pos_villa_product", "odoo_product"])
+OdooVillaRelation = namedtuple("OdooVillaRelation", ["odoo_product", "pos_villa_product"])
 
 def record_to_pos_villa_product(record) -> PosVillaProduct:
     pos_villa_values = json.loads(record.pos_villa_values)
@@ -32,13 +33,17 @@ def get_market_products_rel(env) -> list:
         relations.append(VillaOdooRelation(pos_villa_product, odoo_product))
     return relations
 
-def get_all_odoo_products(env) -> list:
+def get_all_odoo_products_relation(env) -> list:
     product = env["product.product"]
-    odoo_products = []
-    for odoo_product in product.search([]):
-        odoo_product = OdooProduct(odoo_product.id, odoo_product.name, odoo_product.pos_categ_id.name, odoo_product.pos_categ_id.parent_id.name, odoo_product.active)
-        odoo_products.append(odoo_product)
-    return odoo_products
+    odoo_pos_villa_relations = []
+    for product in product.search([]):
+        odoo_product = OdooProduct(product.id, product.name, product.pos_categ_id.name, product.pos_categ_id.parent_id.name, product.active)
+        if product.pos_villa_product_ids:
+            for legacy_product in product.pos_villa_product_ids:
+                odoo_pos_villa_relations.append(OdooVillaRelation(odoo_product, record_to_pos_villa_product(legacy_product)))
+        else:
+            odoo_pos_villa_relations.append(OdooVillaRelation(odoo_product, None))
+    return odoo_pos_villa_relations
 
 def product_categories_match(pos_villa_product: PosVillaProduct, odoo_product: OdooProduct) -> bool:
     villa_categ = pos_villa_product.family and unidecode(pos_villa_product.family.lower())
@@ -70,9 +75,10 @@ def main(env):
     catalog_filename = now.strftime(PRODUCT_CATALOG_OUT_FILE_NAME)
     with open(catalog_filename, "w") as outfile:
         writer = csv.writer(outfile, quoting=csv.QUOTE_ALL)
-        HEADERS = ["id", "Name", "Parent Category", "Category", "Active"]
+        HEADERS = ["id", "pos_villa_id" ,"Name", "Parent Category", "Category", "Active"]
         writer.writerow(HEADERS)
-        all_odoo_products = get_all_odoo_products(env)
-        for product in all_odoo_products:
-            id, name, categ, parent_categ, active = product
-            writer.writerow([id, name, parent_categ or "SIN CATEGORIA" , categ or "SIN CATEGORIA", active])
+        all_odoo_product_relations = get_all_odoo_products_relation(env)
+        for odoo_product, pos_villa_product in all_odoo_product_relations:
+            id, name, categ, parent_categ, active = odoo_product
+            pos_villa_id = pos_villa_product.pos_villa_identifier if pos_villa_product else "N/A"
+            writer.writerow([id, pos_villa_id, name, parent_categ or "SIN CATEGORIA" , categ or "SIN CATEGORIA", active])
