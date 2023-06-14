@@ -96,7 +96,9 @@ def process_amount(amount: str) -> tuple:
     sign = amount_match["sign"] or "+"
     return (sign, amount_match["amount"], amount_match["type"])
 
-
+def format_amount(amount: tuple) -> str:
+    sign, amount, _type = amount
+    return (sign if sign == "-" else "") + str(amount) + _type
 
 def main(argv):
     if not valid_args(argv):

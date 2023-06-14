@@ -2,7 +2,7 @@
 """
 Produce a comparison between a villagroup poliza and our implementation of poliza
 """
-from poliza2csv import process_line, EXCLUDED_CONCEPTS, SKIP_FIRST, PolizaLine, process_amount
+from poliza2csv import process_line, EXCLUDED_CONCEPTS, SKIP_FIRST, PolizaLine, process_amount, format_amount
 import sys
 import csv
 import re
@@ -10,10 +10,24 @@ from collections import namedtuple
 import logging
 import argparse
 import tabulate
+import datetime as dt
 
 log = logging.getLogger(__name__)
 
 VAUXOO_SKIP_FIRST = 1
+
+CollapsedAccount = namedtuple("CollapsedAccount", ["account", "description"])
+
+def get_collapsed_accounts(fname: str) -> list:
+    try:
+        collapsed_accounts = []
+        with open(fname, "r") as file:
+            reader = csv.reader(file)
+            for row in reader:
+                collapsed_accounts.append(CollapsedAccount(*row))
+        return collapsed_accounts
+    except:
+        return []
 
 
 def main(argv):
@@ -22,8 +36,10 @@ def main(argv):
     argparser.add_argument("POLIZA_VX", help="Vauxoo poliza impl (.csv)")
     argparser.add_argument("--strict", help="Doesn't permit a match if concepts don't align", action="store_true")
     argparser.add_argument("--show-close-matches", "-s", help="Show amounts that almost align by MARGIN", action="store_true")
-    argparser.add_argument("--collapse-market-amounts", help="Collapse market amounts into a single account and compare those amounts", action="store_true")
+    argparser.add_argument("--collapse-accounts", help="Collapse accounts specified in .collapse", action="store_true")
     argparser.add_argument("--show-inverted-sign-matches", help="Show amounts that match but have their sign inverted", action="store_true")
+    argparser.add_argument("--csv-match-results", action="store_true")
+    argparser.add_argument("--remove-spa-lines", action="store_true")
     args = argparser.parse_args()
 
     poliza_vg = args.POLIZA_VILLAGROUP
@@ -49,11 +65,14 @@ def main(argv):
         lines_vauxoo : list[PolizaLine] = map(process_vauxoo_line, poliza_reader)
         lines_vauxoo : list[PolizaLine] = list(filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vauxoo))
 
-    if args.collapse_market_amounts:
-        lines_vg = collapse_market_amounts(lines_vg)
-        lines_vg = collapse_market_discount_amounts(lines_vg)
-        lines_vauxoo = collapse_market_amounts(lines_vauxoo)
-        lines_vauxoo = collapse_market_discount_amounts(lines_vauxoo)
+    if args.remove_spa_lines:
+        lines_vg = remove_spa_lines(lines_vg)
+
+    if args.collapse_accounts:
+        collapsed_accounts = get_collapsed_accounts(".collapse")
+        for account, descr in collapsed_accounts:
+            lines_vg = collapse_account(lines_vg, account, descr)
+            lines_vauxoo = collapse_account(lines_vauxoo, account, descr)
 
     matches = 0
 
@@ -68,16 +87,29 @@ def main(argv):
             possible_target = get_possible_target(line_vx, lines_vg) or None
             unmatched_lines.append((line_vx, possible_target))
 
-    matched_table = [["MATCH", vx.account, vx.concept, vg.account, vg.concept] for vx, vg in matched_lines]
+    matched_table = [["MATCH", vx.account, vx.concept, format_amount((vx.sign, vx.amount, vx.type)), format_amount((vg.sign, vg.amount, vg.type)), vg.account, vg.concept] for vx, vg in matched_lines]
     unmatched_table = [["NO MATCH", vx.account, vx.concept, vx.amount, tg.amount if tg else "", tg.concept if tg else "", tg.account if tg else ""] for vx, tg in unmatched_lines]
 
-    print(tabulate.tabulate(matched_table, headers=["STATUS", "VX acc", "VX concept", "VG acc", "VG concept"]))
+    CSV_RESULT_FILE = "poliza_match_results_%d%m%Y.csv"
+    now = dt.datetime.now()
+
+    if args.csv_match_results:
+        with open(now.strftime(CSV_RESULT_FILE), "w") as outfile:
+            writer = csv.writer(outfile, csv.QUOTE_MINIMAL)
+            writer.writerow(["account", "concept", "VX-VG match"])
+            for vx, vg in matched_lines:
+                writer.writerow([vx.account, vx.concept, True])
+            for vx, possibly_vg in unmatched_lines:
+                writer.writerow([vx.account, vx.concept, False])
+
+
+    print(tabulate.tabulate(matched_table, headers=["STATUS", "VX acc", "VX concept", "VX amount", "VG amount","VG acc", "VG concept"]))
     print(tabulate.tabulate(unmatched_table))
 
     len_target = len(lines_vauxoo)
     match_pctg = matches / len_target
     #  print("-"*40 + "\n")
-    print("Summary:\nMatching concepts: {}\nMatching pctg: {:.2f}%".format(matches,match_pctg * 100))
+    print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, len(lines_vauxoo), match_pctg * 100))
 
 def line_has_match(line: PolizaLine, domain: list, tolerance=0.5, tolerance_upper_bound=5.0, strict=False, show_close_matches=False) -> PolizaLine:
     line_amount = float(line.amount)
@@ -88,8 +120,8 @@ def line_has_match(line: PolizaLine, domain: list, tolerance=0.5, tolerance_uppe
         target_type = target_line.type
         target_sign = target_line.sign
         if  abs(line_amount - target_amount) < tolerance and line_type == target_type:
-            if target_line.concept != line.concept and strict:
-                return False
+            #  if target_line.concept != line.concept and strict:
+                #  return False
             if target_line.account.strip() != line.account.strip() and strict:
                 return False
             return target_line 
@@ -103,26 +135,26 @@ def process_vauxoo_line(csv: list) -> PolizaLine:
     concept = csv[1]
     sign, amount, _type = process_amount(csv[2])
     return PolizaLine(account, concept, sign, amount, _type)
+
+def remove_spa_lines(lines: list[PolizaLine]) ->list[PolizaLine]:
+    return list(filter(lambda l: "spa" not in l.concept.lower(), lines))
     
 
-def collapse_market_amounts(lines: list[PolizaLine]) -> list[PolizaLine]:
-    MARKET_ACC = "411401001"
-    market_lines = filter(lambda l: l.account == MARKET_ACC, lines)
-    assert all(l.type == "a"  and l.sign == "-" for l in market_lines)
-    all_other_lines = list(filter(lambda l: l.account != MARKET_ACC, lines))
-    market_amount = sum(float(l.amount) for l in market_lines)
-    new_line = PolizaLine(MARKET_ACC, "TODO PALMITA MARKET", "-", market_amount, "a")
-    all_other_lines.append(new_line)
-    return all_other_lines
-
-def collapse_market_discount_amounts(lines: list[PolizaLine]) -> list[PolizaLine]:
-    MARKET_DISC_ACC = "411450001" 
-    assert any(l.account == MARKET_DISC_ACC for l in lines)
-    market_lines = filter(lambda l: l.account == MARKET_DISC_ACC, lines)
-    all_other_lines = list(filter(lambda l: l.account != MARKET_DISC_ACC, lines))
-    market_amount = sum(float(l.amount) for l in market_lines)
-    new_line = PolizaLine(MARKET_DISC_ACC, "TODO PALMITA MARKET DISCOUNT TAX", "-", market_amount, "a")
-    all_other_lines.append(new_line)
+def collapse_account(lines: list[PolizaLine], account: str, descr: str) -> list[PolizaLine]:
+    acc_lines = list(filter(lambda l: l.account == account, lines))
+    all_other_lines = list(filter(lambda l: l.account != account, lines))
+    amount_debit = sum(float(l.sign + l.amount) for l in filter(lambda l: l.type == "c", acc_lines))
+    amount_credit = sum(float(l.sign + l.amount) for l in filter(lambda l: l.type == "a", acc_lines))
+    acc_amount_debit ="{:.2f}c".format(amount_debit)
+    acc_amount_credit ="{:.2f}a".format(amount_credit)
+    debit_sign, debit_amount, debit_type = process_amount(acc_amount_debit)
+    credit_sign, credit_amount, credit_type = process_amount(acc_amount_credit)
+    new_line_debit = PolizaLine(account, descr , debit_sign, debit_amount, debit_type)
+    new_line_credit = PolizaLine(account, descr , credit_sign, credit_amount, credit_type)
+    if amount_debit:
+        all_other_lines.append(new_line_debit)
+    if amount_credit:
+        all_other_lines.append(new_line_credit)
     return all_other_lines
 
 def get_possible_target(line: PolizaLine, candidates: list[PolizaLine]) -> PolizaLine:
