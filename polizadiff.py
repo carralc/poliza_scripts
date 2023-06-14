@@ -170,10 +170,5 @@ def get_possible_target(line: PolizaLine, candidates: list[PolizaLine]) -> Poliz
 
 
 
-def validate_args(argv):
-    if len(argv) < 2:
-        return False
-    return True
-
 if __name__ == "__main__":
     main(sys.argv)
