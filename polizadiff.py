@@ -205,11 +205,11 @@ def get_odd_amounts_out(lines: list[PolizaLine], target_amount: float, tolerance
     the amounts might match with the target. This function performs combinatorial analysis
     so that we are able to find if extracting a combination of lines from the original lines
     yields the target amount"""
-    max_combination_len = len(lines) if len(lines) < 4 else 3
-    acc_lines_amount = sum(map(lambda l: float(l.amount), lines)) 
+    max_combination_len = len(lines) if len(lines) < 6 else 5
+    acc_lines_amount = sum(map(lambda l: float(l.sign + l.amount), lines)) 
     for i in range(1, max_combination_len):
         for combination in itertools.combinations(lines, i):
-            possible_substracted_amount = sum(map(lambda l: float(l.amount), combination))
+            possible_substracted_amount = sum(map(lambda l: float(l.sign + l.amount), combination))
             possible_actual_amount = acc_lines_amount - possible_substracted_amount
             if abs(possible_actual_amount - target_amount) < tolerance:
                 return list(combination)
