@@ -12,12 +12,18 @@ import argparse
 import tabulate
 import datetime as dt
 import itertools
+from enum import Enum 
+import os
 
 log = logging.getLogger(__name__)
 
 VAUXOO_SKIP_FIRST = 1
 
 CollapsedAccount = namedtuple("CollapsedAccount", ["account", "description"])
+
+class OpMode(Enum):
+    SINGLE_FILE_DIFF = 0
+    DIR_DIFF = 1
 
 def get_collapsed_accounts(fname: str) -> list:
     try:
@@ -35,6 +41,66 @@ def extract_poliza_date_from_fname(fname:str) -> str:
     dt_match  = dt_matcher.search(fname)
     return dt_match["date"]
 
+def get_vg_poliza_lines(poliza_vg):
+    with open(poliza_vg, "r", encoding="ISO-8859-1") as poliza_vg_file:
+        for _ in range(SKIP_FIRST):
+            next(poliza_vg_file)
+        # list of PolizaLine
+        lines_vg = map(process_line, poliza_vg_file)
+        # Remove None's
+        lines_vg = filter(lambda line: line, lines_vg)
+        # Remove excluded concepts
+        lines_vg : list[PolizaLine] = list(filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vg))
+        return remove_spa_lines(lines_vg)
+
+def get_vx_poliza_lines(poliza_vx):
+    with open(poliza_vx, "r") as poliza_vauxoo:
+        poliza_reader = csv.reader(poliza_vauxoo, delimiter=",", quotechar='"')
+        for _ in range(VAUXOO_SKIP_FIRST):
+            next(poliza_reader)
+        lines_vauxoo : list[PolizaLine] = map(process_vauxoo_line, poliza_reader)
+        lines_vauxoo : list[PolizaLine] = list(filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vauxoo))
+        return lines_vauxoo
+
+def get_matches(lines_src, lines_target, args, src_lbl="SOURCE", target_lbl="TARGET"):
+
+    extracted_lines_source = {}
+    extracted_lines_target = {}
+
+    if args.collapse_accounts:
+        collapsed_accounts = get_collapsed_accounts(".collapse")
+        for account, descr in collapsed_accounts:
+            lines_src, extracted_src  = collapse_account(lines_src, account, descr)
+            extracted_lines_source[account] = extracted_src
+            lines_target, extracted_target = collapse_account(lines_target, account, descr)
+            extracted_lines_target[account] = extracted_target
+
+
+    matched_lines = []
+    unmatched_lines = []
+
+    odd_amounts_buffer = []
+
+    for line_target in lines_target:
+        if matched_line := line_has_match(line_target, lines_src, strict=args.strict, show_close_matches=args.show_close_matches):
+            matched_lines.append((line_target, matched_line))
+        else:
+            # If line was unmatched and is accumulated line, check if by extracting one or some amounts, we could
+            # actually match it to its intended target. In practice, this is used by extracting untagged spa amounts
+            if acc_lines_src := extracted_lines_source.get(line_target.account):
+                acc_lines_tgt = extracted_lines_target.get(line_target.account)
+                target_amount = sum(float(l.amount) for l in acc_lines_tgt)
+                odd_lines = get_odd_amounts_out(acc_lines_src, target_amount)
+                if odd_lines:
+                    add_to_odd_amounts(odd_lines, odd_amounts_buffer, src_lbl, target_lbl)
+                    matched_lines.append((line_target, get_dummy_line()))
+                    continue
+
+            possible_target = get_possible_target(line_target, lines_src) or None
+            unmatched_lines.append((line_target, possible_target))
+
+    return matched_lines, unmatched_lines, odd_amounts_buffer
+
 def main(argv):
     argparser = argparse.ArgumentParser()
     argparser.add_argument("POLIZA_VILLAGROUP", help="Villagroup poliza impl (.txt)")
@@ -48,91 +114,50 @@ def main(argv):
 
     poliza_vg = args.POLIZA_VILLAGROUP
     poliza_vauxoo = args.POLIZA_VX
-    
-    lines_vg = None
-    lines_vauxoo = None
-    with open(poliza_vg, "r", encoding="ISO-8859-1") as poliza_vg_file:
-        for _ in range(SKIP_FIRST):
-            next(poliza_vg_file)
-        # list of PolizaLine
-        lines_vg = map(process_line, poliza_vg_file)
-        # Remove None's
-        lines_vg = filter(lambda line: line, lines_vg)
-        # Remove excluded concepts
-        lines_vg : list[PolizaLine] = list(filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vg))
+
+    opmode = None
+
+    if os.path.isdir(poliza_vg) and os.path.isdir(poliza_vauxoo):
+        opmode = OpMode.DIR_DIFF
+    elif os.path.isfile(poliza_vg) and os.path.isfile(poliza_vauxoo):
+        opmode = OpMode.SINGLE_FILE_DIFF
 
 
-    with open(poliza_vauxoo, "r") as poliza_vauxoo:
-        poliza_reader = csv.reader(poliza_vauxoo, delimiter=",", quotechar='"')
-        for _ in range(VAUXOO_SKIP_FIRST):
-            next(poliza_reader)
-        lines_vauxoo : list[PolizaLine] = map(process_vauxoo_line, poliza_reader)
-        lines_vauxoo : list[PolizaLine] = list(filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vauxoo))
+    if opmode == OpMode.SINGLE_FILE_DIFF:
+        lines_vx = get_vx_poliza_lines(poliza_vauxoo) 
+        lines_vg = get_vg_poliza_lines(poliza_vg) 
+        matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(lines_vg, lines_vx, args, src_lbl="POLIZA VG", target_lbl="POLIZA VX") 
 
-    lines_vg = remove_spa_lines(lines_vg)
+        matched_table = [["MATCH", vx.account, vx.concept, format_amount((vx.sign, vx.amount, vx.type)), format_amount((vg.sign, vg.amount, vg.type)), vg.account, vg.concept] for vx, vg in matched_lines]
+        unmatched_table = [["NO MATCH", vx.account, vx.concept, vx.amount, tg.amount if tg else "", tg.concept if tg else "", tg.account if tg else ""] for vx, tg in unmatched_lines]
 
-    extracted_lines_vx = {}
-    extracted_lines_vg = {}
+        CSV_RESULT_FILE = "POLIZA_DIFF_%s.csv"
 
-    if args.collapse_accounts:
-        collapsed_accounts = get_collapsed_accounts(".collapse")
-        for account, descr in collapsed_accounts:
-            lines_vg, extracted_vg  = collapse_account(lines_vg, account, descr)
-            extracted_lines_vg[account] = extracted_vg
-            lines_vauxoo, extracted_vx = collapse_account(lines_vauxoo, account, descr)
-            extracted_lines_vx[account] = extracted_vx
-
-
-    matched_lines = []
-    unmatched_lines = []
-
-    odd_amounts_buffer = []
-
-    for line_vx in lines_vauxoo:
-        if matched_line := line_has_match(line_vx, lines_vg, strict=args.strict, show_close_matches=args.show_close_matches):
-            matched_lines.append((line_vx, matched_line))
-        else:
-            # If line was unmatched and is accumulated line, check if by extracting one or some amounts, we could
-            # actually match it to its intended target. In practice, this is used by extracting untagged spa amounts
-            if acc_lines_vg := extracted_lines_vg.get(line_vx.account):
-                acc_lines_vx = extracted_lines_vx.get(line_vx.account)
-                target_amount = sum(float(l.amount) for l in acc_lines_vx)
-                odd_lines = get_odd_amounts_out(acc_lines_vg, target_amount)
-                if odd_lines:
-                    add_to_odd_amounts(odd_lines, odd_amounts_buffer, "Poliza VG", "Poliza VX")
-                    matched_lines.append((line_vx, get_dummy_line()))
-                    continue
-
-            possible_target = get_possible_target(line_vx, lines_vg) or None
-            unmatched_lines.append((line_vx, possible_target))
-
-    matched_table = [["MATCH", vx.account, vx.concept, format_amount((vx.sign, vx.amount, vx.type)), format_amount((vg.sign, vg.amount, vg.type)), vg.account, vg.concept] for vx, vg in matched_lines]
-    unmatched_table = [["NO MATCH", vx.account, vx.concept, vx.amount, tg.amount if tg else "", tg.concept if tg else "", tg.account if tg else ""] for vx, tg in unmatched_lines]
-
-    CSV_RESULT_FILE = "POLIZA_DIFF_%s.csv"
-
-    if args.csv_match_results:
-        poliza_date = extract_poliza_date_from_fname(poliza_vg)
-        with open(CSV_RESULT_FILE % poliza_date, "w") as outfile:
-            writer = csv.writer(outfile, csv.QUOTE_MINIMAL)
-            writer.writerow(["account", "concept", "VX-VG match"])
-            for vx, vg in matched_lines:
-                writer.writerow([vx.account, vx.concept, True])
-            for vx, possibly_vg in unmatched_lines:
-                writer.writerow([vx.account, vx.concept, False])
+        if args.csv_match_results:
+            poliza_date = extract_poliza_date_from_fname(poliza_vg)
+            with open(CSV_RESULT_FILE % poliza_date, "w") as outfile:
+                writer = csv.writer(outfile, csv.QUOTE_MINIMAL)
+                writer.writerow(["account", "concept", "VX-VG match"])
+                for vx, vg in matched_lines:
+                    writer.writerow([vx.account, vx.concept, True])
+                for vx, possibly_vg in unmatched_lines:
+                    writer.writerow([vx.account, vx.concept, False])
 
 
-    print(tabulate.tabulate(matched_table, headers=["STATUS", "VX acc", "VX concept", "VX amount", "VG amount","VG acc", "VG concept"]))
-    print(tabulate.tabulate(unmatched_table))
+        print(tabulate.tabulate(matched_table, headers=["STATUS", "VX acc", "VX concept", "VX amount", "VG amount","VG acc", "VG concept"]))
+        print(tabulate.tabulate(unmatched_table))
 
-    for msg in odd_amounts_buffer:
-        print(msg)
+        for msg in odd_amounts_buffer:
+            print(msg)
 
-    len_target = len(lines_vauxoo)
-    matches = len(matched_lines)
-    match_pctg = matches / len_target
-    #  print("-"*40 + "\n")
-    print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, len(lines_vauxoo), match_pctg * 100))
+        len_target = len(matched_lines) + len(unmatched_lines)
+        matches = len(matched_lines)
+        match_pctg = matches / len_target
+        #  print("-"*40 + "\n")
+        print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, len(unmatched_lines), match_pctg * 100))
+
+    else:
+        print("ERROR: Unimplemented")
 
 def add_to_odd_amounts(odd_lines: list[PolizaLine], odd_amounts_acc_list: list[str], source: str, target: str):
     for line in odd_lines:
