@@ -51,7 +51,7 @@ def get_vg_poliza_lines(poliza_vg):
         lines_vg = filter(lambda line: line, lines_vg)
         # Remove excluded concepts
         lines_vg : list[PolizaLine] = list(filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vg))
-        return remove_spa_lines(lines_vg)
+        return remove_unsupported_vg_lines(lines_vg)
 
 def get_vx_poliza_lines(poliza_vx):
     with open(poliza_vx, "r") as poliza_vauxoo:
@@ -192,8 +192,12 @@ def process_vauxoo_line(csv: list) -> PolizaLine:
     sign, amount, _type = process_amount(csv[2])
     return PolizaLine(account, concept, sign, amount, _type)
 
-def remove_spa_lines(lines: list[PolizaLine]) ->list[PolizaLine]:
-    return list(filter(lambda l: "spa" not in l.concept.lower(), lines))
+def remove_unsupported_vg_lines(lines: list[PolizaLine]) ->list[PolizaLine]:
+    lines = filter(lambda l: "spa" not in l.concept.lower(), lines)
+    lines = filter(lambda l: "masaje" not in l.concept.lower(), lines)
+    lines = filter(lambda l: "facial" not in l.concept.lower(), lines)
+    lines = filter(lambda l: "boutique" not in l.concept.lower(), lines)
+    return list(lines)
     
 
 def collapse_account(lines: list[PolizaLine], account: str, descr: str) -> (list[PolizaLine], list[PolizaLine]):
