@@ -15,6 +15,7 @@ import itertools
 from enum import Enum 
 import os
 import io 
+import datetime as dt
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def get_collapsed_accounts(fname: str) -> list:
 def extract_poliza_date_from_fname(fname:str) -> str:
     dt_matcher = re.compile(r"(?P<date>\d{8})")
     dt_match  = dt_matcher.search(fname)
-    return dt_match["date"]
+    return dt_match["date"] if dt_match else None
 
 def get_vg_poliza_lines(poliza_vg):
     with open(poliza_vg, "r", encoding="ISO-8859-1") as poliza_vg_file:
@@ -143,46 +144,72 @@ def main(argv):
                     writer.writerow([vx.account, vx.concept, False])
 
         headers = ["STATUS", "VG acc", "VG concept", "VG amount", "VX amount","VX acc", "VX concept"]
-        print(tabulate_results(matched_lines, unmatched_lines,odd_amounts_buffer, headers))
+        ok_msg, err_msg = tabulate_results(matched_lines, unmatched_lines,odd_amounts_buffer, headers)
+        print(ok_msg)
+        print(err_msg)
 
 
     elif opmode == OpMode.DIR_DIFF:
+        global_matches, global_non_matches = 0, 0
         # Iter through files in vg dir
         for vg_poliza_fname in os.listdir(poliza_vg):
             # Extract poliza date stamp
             poliza_date_stamp = extract_poliza_date_from_fname(vg_poliza_fname)
+            if not poliza_date_stamp:
+                print(f"SKIP: {vg_poliza_fname}")
+                continue
+
+            vg_poliza_fname = os.path.join(poliza_vg, vg_poliza_fname)
 
             target_vx_fname = f"POLIZAINGRESOS_VX{poliza_date_stamp}.csv"
-            target_vx_fname = os.path.join(poliza_vx, target_vx_fname)
+            target_vx_fname = os.path.join(poliza_vauxoo, target_vx_fname)
             # Look for matching vx poliza
             if not os.path.exists(target_vx_fname):
                 print(f"SKIP: {target_vx_fname} not found")
                 continue
+            lines_vx = get_vx_poliza_lines(target_vx_fname)
+            lines_vg = get_vg_poliza_lines(vg_poliza_fname)
+            matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(lines_vx, lines_vg, args, src_lbl="POLIZA VX", target_lbl="POLIZA VG") 
+            headers = ["STATUS", "VG acc", "VG concept", "VG amount", "VX amount","VX acc", "VX concept"]
+            ok_msg, err_msg = tabulate_results(matched_lines, unmatched_lines,odd_amounts_buffer, headers)
+            current_date = dt.datetime.strptime(poliza_date_stamp, "%Y%m%d") 
+            print(current_date.strftime("%a %d %b %Y"))
+            print(f"COMPARING: {vg_poliza_fname} vs. {target_vx_fname}")
+            print(err_msg)
+            matches, non_matches, _match_pctg = get_match_stats(matched_lines, unmatched_lines)
+            global_matches += matches
+            global_non_matches += non_matches
+        global_match_pctg = global_matches / (global_matches + global_non_matches)
+        print("Global match pctg: {:.2f}%".format(global_match_pctg * 100))
             
 
     else:
         print("ERROR: Unimplemented")
 
-def tabulate_results(matched_lines, unmatched_lines, odd_amounts_buffer, headers) -> str:
+def tabulate_results(matched_lines, unmatched_lines, odd_amounts_buffer, headers) -> tuple:
     out_str = io.StringIO("")
+    err_str = io.StringIO("")
     matched_table = ([
             ["MATCH", tgt.account, tgt.concept, format_amount((tgt.sign, tgt.amount, tgt.type)), format_amount((src.sign, src.amount, src.type)), src.account, src.concept] 
             for tgt, src in matched_lines])
     unmatched_table = ([
-            ["NO MATCH", tgt.account, tgt.concept, tgt.amount, possible_tgt.amount if possible_tgt else "", possible_tgt.concept if possible_tgt else "", possible_tgt.account if possible_tgt else ""] 
+            ["NO MATCH", tgt.account, tgt.concept, format_amount((tgt.sign, tgt.amount, tgt.type)), format_amount((possible_tgt.sign, possible_tgt.amount, possible_tgt.type)) if possible_tgt else "", possible_tgt.concept if possible_tgt else "", possible_tgt.account if possible_tgt else ""] 
             for tgt, possible_tgt in unmatched_lines])
     print(tabulate.tabulate(matched_table, headers=headers), file=out_str)
-    print(tabulate.tabulate(unmatched_table), file=out_str)
+    print(tabulate.tabulate(unmatched_table, headers=headers), file=err_str)
     for msg in odd_amounts_buffer:
-        print(msg, file=out_str)
+        print(msg, file=err_str)
+    matches, non_matches, match_pctg = get_match_stats(matched_lines, unmatched_lines)
+    print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, non_matches, match_pctg * 100), file=err_str)
+    return out_str.getvalue(), err_str.getvalue()
+
+    
+def get_match_stats(matched_lines, unmatched_lines) -> tuple:
     len_target = len(matched_lines) + len(unmatched_lines)
     matches = len(matched_lines)
     non_matches = len(unmatched_lines)
     match_pctg = matches / (len_target or 1)
-    print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, non_matches, match_pctg * 100), file=out_str)
-    return out_str.getvalue()
-
-    
+    return matches, non_matches, match_pctg
 
 def add_to_odd_amounts(odd_lines: list[PolizaLine], odd_amounts_acc_list: list[str], source: str, target: str):
     for line in odd_lines:
