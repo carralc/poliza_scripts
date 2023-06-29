@@ -143,9 +143,9 @@ def main(argv):
                 for vx, possibly_vg in unmatched_lines:
                     writer.writerow([vx.account, vx.concept, False])
 
+        headers = ["STATUS", "VG acc", "VG concept", "VG amount", "VX amount","VX acc", "VX concept"]
+        print(tabulate_results(matched_lines, unmatched_lines,odd_amounts_buffer, headers))
 
-        print(tabulate.tabulate(matched_table, headers=["STATUS", "VX acc", "VX concept", "VX amount", "VG amount","VG acc", "VG concept"]))
-        print(tabulate.tabulate(unmatched_table))
 
         for msg in odd_amounts_buffer:
             print(msg)
@@ -158,6 +158,28 @@ def main(argv):
 
     else:
         print("ERROR: Unimplemented")
+
+def tabulate_results(matched_lines, unmatched_lines, odd_amounts_buffer, headers) -> str:
+    out_str = io.StringIO("")
+    matched_table = ([
+            ["MATCH", tgt.account, tgt.concept, format_amount((tgt.sign, tgt.amount, tgt.type)), format_amount((src.sign, src.amount, src.type)), src.account, src.concept] 
+            for tgt, src in matched_lines])
+    unmatched_table = ([
+            ["NO MATCH", tgt.account, tgt.concept, tgt.amount, possible_tgt.amount if possible_tgt else "", possible_tgt.concept if possible_tgt else "", possible_tgt.account if possible_tgt else ""] 
+            for tgt, possible_tgt in unmatched_lines])
+    assert len(headers) == len(matched_table[0])
+    print(tabulate.tabulate(matched_table, headers=headers), file=out_str)
+    print(tabulate.tabulate(unmatched_table), file=out_str)
+    for msg in odd_amounts_buffer:
+        print(msg, file=out_str)
+    len_target = len(matched_lines) + len(unmatched_lines)
+    matches = len(matched_lines)
+    non_matches = len(unmatched_lines)
+    match_pctg = matches / len_target
+    print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, non_matches, match_pctg * 100), file=out_str)
+    return out_str.getvalue()
+
+    
 
 def add_to_odd_amounts(odd_lines: list[PolizaLine], odd_amounts_acc_list: list[str], source: str, target: str):
     for line in odd_lines:
