@@ -171,7 +171,6 @@ def tabulate_results(matched_lines, unmatched_lines, odd_amounts_buffer, headers
     unmatched_table = ([
             ["NO MATCH", tgt.account, tgt.concept, tgt.amount, possible_tgt.amount if possible_tgt else "", possible_tgt.concept if possible_tgt else "", possible_tgt.account if possible_tgt else ""] 
             for tgt, possible_tgt in unmatched_lines])
-    assert len(headers) == len(matched_table[0])
     print(tabulate.tabulate(matched_table, headers=headers), file=out_str)
     print(tabulate.tabulate(unmatched_table), file=out_str)
     for msg in odd_amounts_buffer:
@@ -179,7 +178,7 @@ def tabulate_results(matched_lines, unmatched_lines, odd_amounts_buffer, headers
     len_target = len(matched_lines) + len(unmatched_lines)
     matches = len(matched_lines)
     non_matches = len(unmatched_lines)
-    match_pctg = matches / len_target
+    match_pctg = matches / (len_target or 1)
     print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, non_matches, match_pctg * 100), file=out_str)
     return out_str.getvalue()
 
