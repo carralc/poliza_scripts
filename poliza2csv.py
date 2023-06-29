@@ -81,7 +81,7 @@ def valid_args(argv) -> bool:
 
 def process_line(line: str) -> PolizaLine:
     ACCOUNT_LEN = 11
-    CONCEPT_LEN = 30
+    CONCEPT_LEN = 50
     if len(line) < ACCOUNT_LEN + CONCEPT_LEN:
         return None
     account = line[0:ACCOUNT_LEN].strip()
