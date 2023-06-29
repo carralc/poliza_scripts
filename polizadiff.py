@@ -14,6 +14,7 @@ import datetime as dt
 import itertools
 from enum import Enum 
 import os
+import io 
 
 log = logging.getLogger(__name__)
 
@@ -126,10 +127,8 @@ def main(argv):
     if opmode == OpMode.SINGLE_FILE_DIFF:
         lines_vx = get_vx_poliza_lines(poliza_vauxoo) 
         lines_vg = get_vg_poliza_lines(poliza_vg) 
-        matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(lines_vg, lines_vx, args, src_lbl="POLIZA VG", target_lbl="POLIZA VX") 
-
-        matched_table = [["MATCH", vx.account, vx.concept, format_amount((vx.sign, vx.amount, vx.type)), format_amount((vg.sign, vg.amount, vg.type)), vg.account, vg.concept] for vx, vg in matched_lines]
-        unmatched_table = [["NO MATCH", vx.account, vx.concept, vx.amount, tg.amount if tg else "", tg.concept if tg else "", tg.account if tg else ""] for vx, tg in unmatched_lines]
+        #  matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(lines_vg, lines_vx, args, src_lbl="POLIZA VG", target_lbl="POLIZA VX") 
+        matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(lines_vx, lines_vg, args, src_lbl="POLIZA VX", target_lbl="POLIZA VG") 
 
         CSV_RESULT_FILE = "POLIZA_DIFF_%s.csv"
 
@@ -137,7 +136,7 @@ def main(argv):
             poliza_date = extract_poliza_date_from_fname(poliza_vg)
             with open(CSV_RESULT_FILE % poliza_date, "w") as outfile:
                 writer = csv.writer(outfile, csv.QUOTE_MINIMAL)
-                writer.writerow(["account", "concept", "VX-VG match"])
+                writer.writerow(["account", "concept", "VG-VX match"])
                 for vx, vg in matched_lines:
                     writer.writerow([vx.account, vx.concept, True])
                 for vx, possibly_vg in unmatched_lines:
@@ -147,14 +146,19 @@ def main(argv):
         print(tabulate_results(matched_lines, unmatched_lines,odd_amounts_buffer, headers))
 
 
-        for msg in odd_amounts_buffer:
-            print(msg)
+    elif opmode == OpMode.DIR_DIFF:
+        # Iter through files in vg dir
+        for vg_poliza_fname in os.listdir(poliza_vg):
+            # Extract poliza date stamp
+            poliza_date_stamp = extract_poliza_date_from_fname(vg_poliza_fname)
 
-        len_target = len(matched_lines) + len(unmatched_lines)
-        matches = len(matched_lines)
-        match_pctg = matches / len_target
-        #  print("-"*40 + "\n")
-        print("Summary:\nMatching concepts: {}\nNon matching: {}\nMatching pctg: {:.2f}%".format(matches, len(unmatched_lines), match_pctg * 100))
+            target_vx_fname = f"POLIZAINGRESOS_VX{poliza_date_stamp}.csv"
+            target_vx_fname = os.path.join(poliza_vx, target_vx_fname)
+            # Look for matching vx poliza
+            if not os.path.exists(target_vx_fname):
+                print(f"SKIP: {target_vx_fname} not found")
+                continue
+            
 
     else:
         print("ERROR: Unimplemented")
