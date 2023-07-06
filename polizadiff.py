@@ -324,9 +324,12 @@ def get_possible_target(line: PolizaLine, candidates: list[PolizaLine]) -> Poliz
         filter(lambda l: l.account == line.account, candidates))
     # 2. Search if any two lines share a word in their title
     line_words = list(
-        map(lambda w: w.lower(), re.split("[\W+|-]", line.concept.lower())))
-    words_in_targets = map(lambda t: (t, re.split(
-        "[\W+|-]", t.concept.lower())), matches_by_account)
+        map(lambda w: w.lower(), re.split(r"[\W+|-]", line.concept.lower())))
+    words_in_targets = list(map(lambda t: (t, re.split(
+        r"[\W+|-]", t.concept.lower())), matches_by_account))
+    # Remove words palmita and market
+    words_in_targets = map(lambda tup: (tup[0], list(
+        filter(lambda w: w not in ("palmita", "market"), tup[1]))), words_in_targets)
     count_of_word_matches = map(lambda tgt_words: (tgt_words[0], sum(
         w in line_words for w in tgt_words[1])), words_in_targets)
     sorted_by_matches = list(
