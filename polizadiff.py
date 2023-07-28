@@ -82,10 +82,10 @@ def get_matches(lines_src, lines_target, args, src_lbl="SOURCE", target_lbl="TAR
     if args.collapse_accounts:
         collapsed_accounts = get_collapsed_accounts(".collapse")
         for account, descr in collapsed_accounts:
-            lines_src, extracted_src = collapse_account(
+            lines_src, extracted_src, _new_credit, _new_debit = collapse_account(
                 lines_src, account, descr)
             extracted_lines_source[account] = extracted_src
-            lines_target, extracted_target = collapse_account(
+            lines_target, extracted_target, _new_credit, _new_debit = collapse_account(
                 lines_target, account, descr)
             extracted_lines_target[account] = extracted_target
 
@@ -203,6 +203,10 @@ def main(argv):
             ok_msg, err_msg = tabulate_results(
                 matched_lines, unmatched_lines, odd_amounts_buffer, headers=TABLE_HEADERS)
             current_date = dt.datetime.strptime(poliza_date_stamp, "%Y%m%d")
+            for tgt, match in matched_lines:
+                all_accounts.add(tgt.account)
+            for tgt, match in unmatched_lines:
+                all_accounts.add(tgt.account)
             print(current_date.strftime("%a %d %b %Y"))
             print(f"COMPARING: {vg_poliza_fname} vs. {target_vx_fname}")
             print(err_msg)
@@ -211,6 +215,21 @@ def main(argv):
             candidates_list_non_matches.append(unmatched_lines)
             global_matches += matches
             global_non_matches += non_matches
+
+            matched_by_acc, unmatched_by_acc, _odd_amounts = get_matches_by_account(
+                lines_vg, lines_vx)
+            # If an account is in neither, assume a match
+            matches_by_acc = defaultdict(lambda: 0)
+            for tgt, src in matched_by_acc + unmatched_by_acc:
+                if src is None:
+                    # No match
+                    matches_by_acc[tgt.account] = 1
+                else:
+                    # Match
+                    matches_by_acc[tgt.account] = 0
+                matches_by_day_by_acc[current_date.strftime(
+                    "%d-%m-%Y")] = matches_by_acc
+
         global_match_pctg = global_matches / \
             (global_matches + global_non_matches)
         common_unmatched_concepts = find_common_unmatched_concepts(
@@ -221,8 +240,42 @@ def main(argv):
         for common_unmatched_concept, count in common_unmatched_concepts:
             print(f"{common_unmatched_concept} ({count} misses)")
 
+        # Ensure constant ordering
+        all_accounts = list(sorted(list(all_accounts)))
+        report_fname = "REPORTE_MATCHES_POLIZA.csv"
+        #  breakpoint()
+        with open(report_fname, "w") as report:
+            report_writer = csv.writer(report)
+            report_writer.writerow(["Fecha"] + all_accounts)
+            for day, day_acc_results in matches_by_day_by_acc.items():
+                day_results = [day] + [day_acc_results[account]
+                                       for account in all_accounts]
+                report_writer.writerow(day_results)
+
     else:
         print("ERROR: Unimplemented")
+
+
+def get_matches_by_account(lines_src, lines_target):
+    all_accounts = set()
+    matched_lines = []
+    unmatched_lines = []
+    _odd_amounts_buffer = []
+    for line in lines_src + lines_target:
+        all_accounts.add(line.account)
+
+    for account in all_accounts:
+        lines_src, _extracted, _credit, _debit, = collapse_account(
+            lines_src, account, descr=account)
+        lines_target, _extracted, _credit, _debit, = collapse_account(
+            lines_target, account, descr=account)
+
+    for line_target in lines_target:
+        if matched_line := line_has_match(line_target, lines_src, strict=False, show_close_matches=False):
+            matched_lines.append((line_target, matched_line))
+        else:
+            unmatched_lines.append((line_target, None))
+    return matched_lines, unmatched_lines, _odd_amounts_buffer
 
 
 def tabulate_results(matched_lines, unmatched_lines, odd_amounts_buffer, headers) -> tuple:
@@ -327,7 +380,11 @@ def collapse_account(lines: list[PolizaLine], account: str, descr: str) -> (list
         all_other_lines.append(new_line_debit)
     if amount_credit:
         all_other_lines.append(new_line_credit)
-    return all_other_lines, extracted_lines
+    return all_other_lines, extracted_lines, new_line_credit, new_line_debit
+
+
+def concept_into_words(concept: str) -> list[str]:
+    return re.split(r"[\W+|-]", concept.lower())
 
 
 def get_possible_target(line: PolizaLine, candidates: list[PolizaLine]) -> PolizaLine:
