@@ -176,8 +176,12 @@ def main(argv):
     elif opmode == OpMode.DIR_DIFF:
         global_matches, global_non_matches = 0, 0
         candidates_list_non_matches = []
+        poliza_fnames = os.listdir(poliza_vg)
+        sorted_fnames = sorted(poliza_fnames)
+        matches_by_day_by_acc = {}
+        all_accounts = set()
         # Iter through files in vg dir
-        for vg_poliza_fname in os.listdir(poliza_vg):
+        for vg_poliza_fname in sorted_fnames:
             # Extract poliza date stamp
             poliza_date_stamp = extract_poliza_date_from_fname(vg_poliza_fname)
             if not poliza_date_stamp:
@@ -394,12 +398,12 @@ def get_possible_target(line: PolizaLine, candidates: list[PolizaLine]) -> Poliz
         filter(lambda l: l.account == line.account, candidates))
     # 2. Search if any two lines share a word in their title
     line_words = list(
-        map(lambda w: w.lower(), re.split(r"[\W+|-]", line.concept.lower())))
-    words_in_targets = list(map(lambda t: (t, re.split(
-        r"[\W+|-]", t.concept.lower())), matches_by_account))
+        map(lambda w: w.lower(), concept_into_words(line.concept)))
+    words_in_targets = list(
+        map(lambda t: (t, concept_into_words(t.concept)), matches_by_account))
     # Remove words palmita and market
-    words_in_targets = map(lambda tup: (tup[0], list(
-        filter(lambda w: w not in ("palmita", "market"), tup[1]))), words_in_targets)
+    words_in_targets = list(map(lambda tup: (tup[0], list(
+        filter(lambda w: w not in ("palmita", "market"), tup[1]))), words_in_targets))
     count_of_word_matches = map(lambda tgt_words: (tgt_words[0], sum(
         w in line_words for w in tgt_words[1])), words_in_targets)
     sorted_by_matches = list(
@@ -407,16 +411,15 @@ def get_possible_target(line: PolizaLine, candidates: list[PolizaLine]) -> Poliz
     return sorted_by_matches[0][0] if sorted_by_matches else None
 
 
-def find_common_unmatched_concepts(mismatched_lines_list: list[list[PolizaLine]]) -> str:
+def find_common_unmatched_concepts(mismatched_lines_list: list[list[PolizaLine]]) -> list:
     # Given a list of lists of candidate lines, find concepts that are common several polizas
     target_len = len(mismatched_lines_list)
-    concept_count = defaultdict(lambda: 1)
+    concept_count = defaultdict(lambda: 0)
     for candidate_list in mismatched_lines_list:
         for line, _possible_tgt in candidate_list:
-            #  print(line)
-            concept = line.concept
+            concept = f"({line.account}) {line.concept}"
             concept_count[concept] += 1
-    common_concepts = dict(filter(lambda c: c[1] != 1, sorted(
+    common_concepts = dict(filter(lambda c: c[1] != 0, sorted(
         concept_count.items(), key=lambda c: c[1], reverse=True)))
     return list(common_concepts.items())
 
@@ -427,7 +430,7 @@ def get_odd_amounts_out(lines: list[PolizaLine], target_amount: float, tolerance
     the amounts might match with the target. This function performs combinatorial analysis
     so that we are able to find if extracting a combination of lines from the original lines
     yields the target amount"""
-    max_combination_len = len(lines) if len(lines) < 6 else 5
+    max_combination_len = len(lines) if len(lines) < 4 else 3
     acc_lines_amount = sum(map(lambda l: float(l.sign + l.amount), lines))
     for i in range(1, max_combination_len):
         for combination in itertools.combinations(lines, i):
