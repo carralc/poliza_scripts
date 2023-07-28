@@ -150,6 +150,8 @@ def main(argv):
     if opmode == OpMode.SINGLE_FILE_DIFF:
         lines_vx = get_vx_poliza_lines(poliza_vauxoo)
         lines_vg = get_vg_poliza_lines(poliza_vg)
+        lines_vx = tag_no_account_lines(lines_vx)
+        lines_vg = tag_no_account_lines(lines_vg)
         #  matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(lines_vg, lines_vx, args, src_lbl="POLIZA VG", target_lbl="POLIZA VX")
         matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(
             lines_vx, lines_vg, args, src_lbl="POLIZA VX", target_lbl="POLIZA VG")
@@ -192,6 +194,10 @@ def main(argv):
                 continue
             lines_vx = get_vx_poliza_lines(target_vx_fname)
             lines_vg = get_vg_poliza_lines(vg_poliza_fname)
+
+            lines_vx = tag_no_account_lines(lines_vx)
+            lines_vg = tag_no_account_lines(lines_vg)
+
             matched_lines, unmatched_lines, odd_amounts_buffer = get_matches(
                 lines_vx, lines_vg, args, src_lbl="POLIZA VX", target_lbl="POLIZA VG")
             ok_msg, err_msg = tabulate_results(
@@ -296,7 +302,13 @@ def remove_unsupported_vg_lines(lines: list[PolizaLine]) -> list[PolizaLine]:
     return list(lines)
 
 
-def collapse_account(lines: list[PolizaLine], account: str, descr: str) -> (list[PolizaLine], list[PolizaLine]):
+def tag_no_account_lines(lines: list[PolizaLine]) -> list[PolizaLine]:
+    ret = list(map(lambda l: l if l.account !=
+               "" else PolizaLine("SIN CUENTA", *l[1:]), lines))
+    return ret
+
+
+def collapse_account(lines: list[PolizaLine], account: str, descr: str) -> (list[PolizaLine], list[PolizaLine], PolizaLine, PolizaLine):
     extracted_lines = list(filter(lambda l: l.account == account, lines))
     all_other_lines = list(filter(lambda l: l.account != account, lines))
     amount_debit = sum(float(l.sign + l.amount)
