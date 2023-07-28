@@ -35,7 +35,8 @@ def get_collapsed_accounts(fname: str) -> list:
         with open(fname, "r") as file:
             reader = csv.reader(file)
             for row in reader:
-                collapsed_accounts.append(CollapsedAccount(*row))
+                if not row[0].startswith("#"):
+                    collapsed_accounts.append(CollapsedAccount(*row))
         return collapsed_accounts
     except:
         return []
