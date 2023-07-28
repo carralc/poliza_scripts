@@ -93,8 +93,10 @@ def process_line(line: str) -> PolizaLine:
 def process_amount(amount: str) -> tuple:
     amount_matcher = re.compile(r"((?P<sign>-)*(?P<amount>\d+\.\d+))(?P<type>a|c)")
     amount_match = amount_matcher.search(amount)
-    sign = amount_match["sign"] or "+"
-    return (sign, amount_match["amount"], amount_match["type"])
+    sign = (amount_match["sign"] if amount_match else "-") or "+"
+    amount = amount_match["amount"] if amount_match else "0.0"
+    _type = amount_match["type"] if amount_match else "c"
+    return (sign, amount, _type)
 
 def format_amount(amount: tuple) -> str:
     sign, amount, _type = amount
