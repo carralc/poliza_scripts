@@ -41,6 +41,9 @@ class PolizaAPIRequest:
         self.end_date = end_date
         self.resort_id = resort_id
 
+    def __repr__(self):
+        return f"APIRequest(id={self.id}, start_date={self.start_date.strftime('%d-%m-%Y')}, end_date={self.end_date.strftime('%d-%m-%Y')})"
+
 
 def _post_poliza_init(req: PolizaAPIRequest) -> PolizaAPIRequest:
     dt_format = "%m-%d-%Y"
