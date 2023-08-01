@@ -120,17 +120,14 @@ def get_requests_in_range(start_date, end_date, dates_per_req=3):
     return requests
 
 
-def read_json_lines(fname: str):
-    with open(fname, "rb") as f:
-        data = json.load(f)
-        lines = []
-        for line in data["Poliza"]:
-            api_line = PolizaAPILine(
-                cuenta=line["Cuenta"], concepto=line["Concepto"], cargo=float(line["Cargo"]), abono=float(line["Abono"]))
-            if api_line.concepto not in EXCLUDED_CONCEPTS:
-                print(api_line)
-                lines.append(api_line)
-        return lines
+def read_json_lines(json):
+    lines = []
+    for line in json["Poliza"]:
+        api_line = PolizaAPILine(
+            cuenta=line["Cuenta"], concepto=line["Concepto"], cargo=float(line["Cargo"]), abono=float(line["Abono"]))
+        if api_line.concepto not in EXCLUDED_CONCEPTS:
+            lines.append(api_line)
+    return lines
 
 
 async def push_pending_requests(initial_requests_lock, active_requests_lock, interval=60):
