@@ -16,6 +16,8 @@ from enum import Enum
 import os
 import io
 import datetime as dt
+from poliza_api import PolizaAPILine, read_json_lines
+import json
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +29,14 @@ CollapsedAccount = namedtuple("CollapsedAccount", ["account", "description"])
 class OpMode(Enum):
     SINGLE_FILE_DIFF = 0
     DIR_DIFF = 1
+
+
+def api_line_to_poliza_line(api_line: PolizaAPILine) -> PolizaLine:
+    amount_type = "c" if api_line.cargo != 0.0 else "a"
+    amount = api_line.cargo if api_line.cargo != 0.0 else api_line.abono
+    amount = amount if amount_type != "a" else amount * -1
+    sign = "+" if amount >= 0.0 else "-"
+    return PolizaLine(api_line.cuenta, api_line.concepto, sign, str(abs(amount)), amount_type)
 
 
 def get_collapsed_accounts(fname: str) -> list:
@@ -50,16 +60,23 @@ def extract_poliza_date_from_fname(fname: str) -> str:
 
 def get_vg_poliza_lines(poliza_vg) -> list[PolizaLine]:
     with open(poliza_vg, "r", encoding="ISO-8859-1") as poliza_vg_file:
-        for _ in range(SKIP_FIRST):
-            next(poliza_vg_file)
-        # list of PolizaLine
-        lines_vg = map(process_line, poliza_vg_file)
-        # Remove None's
-        lines_vg = filter(lambda line: line, lines_vg)
-        # Remove excluded concepts
-        lines_vg: list[PolizaLine] = list(
-            filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vg))
-        return remove_unsupported_vg_lines(lines_vg)
+        try:
+            # Assume json format
+            data = json.load(poliza_vg_file)
+            api_lines = read_json_lines(data)
+            lines_vg = map(api_line_to_poliza_line, api_lines)
+            return remove_unsupported_vg_lines(lines_vg)
+        except:
+            for _ in range(SKIP_FIRST):
+                next(poliza_vg_file)
+            # list of PolizaLine
+            lines_vg = map(process_line, poliza_vg_file)
+            # Remove None's
+            lines_vg = filter(lambda line: line, lines_vg)
+            # Remove excluded concepts
+            lines_vg: list[PolizaLine] = list(
+                filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vg))
+            return remove_unsupported_vg_lines(lines_vg)
 
 
 def get_vx_poliza_lines(poliza_vx) -> list[PolizaLine]:
@@ -71,7 +88,7 @@ def get_vx_poliza_lines(poliza_vx) -> list[PolizaLine]:
             process_vauxoo_line, poliza_reader)
         lines_vauxoo: list[PolizaLine] = list(
             filter(lambda line: line.concept not in EXCLUDED_CONCEPTS, lines_vauxoo))
-        return lines_vauxoo
+        return remove_empty_lines(lines_vauxoo)
 
 
 def get_matches(lines_src, lines_target, args, src_lbl="SOURCE", target_lbl="TARGET"):
@@ -347,7 +364,8 @@ def process_vauxoo_line(csv: list) -> PolizaLine:
     account = csv[0]
     concept = csv[1]
     sign, amount, _type = process_amount(csv[2])
-    return PolizaLine(account, concept, sign, amount, _type)
+    padding = 11 - len(account)
+    return PolizaLine(account + "0" * padding, concept, sign, amount, _type)
 
 
 def remove_unsupported_vg_lines(lines: list[PolizaLine]) -> list[PolizaLine]:
@@ -357,6 +375,10 @@ def remove_unsupported_vg_lines(lines: list[PolizaLine]) -> list[PolizaLine]:
     lines = filter(lambda l: "boutique" not in l.concept.lower(), lines)
     lines = filter(lambda l: "belleza" not in l.concept.lower(), lines)
     return list(lines)
+
+
+def remove_empty_lines(lines: list[PolizaLine]) -> list[PolizaLine]:
+    return list(filter(lambda line: line.amount != "0.00", lines))
 
 
 def tag_no_account_lines(lines: list[PolizaLine]) -> list[PolizaLine]:
@@ -395,7 +417,7 @@ def get_possible_target(line: PolizaLine, candidates: list[PolizaLine]) -> Poliz
     # The heuristic we are using is:
     # 1. Search for account
     matches_by_account = list(
-        filter(lambda l: l.account == line.account, candidates))
+        filter(lambda l: (l.account in line.account or line.account in l.account), candidates))
     # 2. Search if any two lines share a word in their title
     line_words = list(
         map(lambda w: w.lower(), concept_into_words(line.concept)))
