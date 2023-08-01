@@ -12,7 +12,7 @@ VG_POLIZA_URL_BASE = "https://restful.frontoffice.villagroup.com/PMSBusinessServ
 
 MAX_ACTIVE_REQUESTS = 1
 
-POLIZA_OUTPUT_DIR = "~/Vauxoo/poliza/polizas_api/"
+POLIZA_OUTPUT_DIR = "/home/carlos-vx/Vauxoo/poliza/polizas_api/"
 
 active_requests = []
 pending_downloads = set()
@@ -110,7 +110,7 @@ def daterange(start_date, end_date, step=1):
         yield start_date + timedelta(n)
 
 
-def get_requests_in_range(start_date, end_date, dates_per_req=3):
+def get_requests_in_range(start_date, end_date, dates_per_req=1):
     requests = []
     days = list(daterange(start_date, end_date))
     for i in range(0, len(days), dates_per_req):
@@ -214,8 +214,8 @@ async def get_payloads(pending_downloads_lock, exit_flag_lock, interval=30):
                 data = _get_poliza(date_to_download)
                 if data:
                     fname = date_to_download.strftime(
-                        "POLIZAINGRESOS_VX%Y%m%d.json")
-                    with open(fname, "w") as file:
+                        "POLIZAINGRESOS_%Y%m%d.json")
+                    with open(os.path.join(POLIZA_OUTPUT_DIR, fname), "w") as file:
                         json.dump(data, file)
             except KeyError:
                 # Empty completed queue
@@ -243,9 +243,10 @@ async def main():
     df = datetime(2023, 2, 12) + timedelta(days=1)
 
     print("Initial requests:")
-    for req in get_requests_in_range(d0, df, 3):
+    for req in get_requests_in_range(d0, df, 1):
         print(req)
         initial_requests.append(req)
+    initial_requests.reverse()
     initial_requests_lock = asyncio.Lock()
     active_requests_lock = asyncio.Lock()
     pending_downloads_lock = asyncio.Lock()
@@ -254,12 +255,12 @@ async def main():
         push_pending_requests(initial_requests_lock,
                               active_requests_lock),
         update_requests_status(active_requests_lock,
-                               exit_flag_lock, 30),
+                               exit_flag_lock, 15),
         transfer_requests_to_pending_download_queue(
             active_requests_lock,
             pending_downloads_lock,
             exit_flag_lock, 15),
-        get_payloads(pending_downloads_lock, exit_flag_lock),
+        get_payloads(pending_downloads_lock, exit_flag_lock, 10),
         supervisor(initial_requests_lock,
                    active_requests_lock,
                    pending_downloads_lock,
