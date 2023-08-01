@@ -343,10 +343,10 @@ def line_has_match(line: PolizaLine, domain: list, tolerance=2.0, tolerance_uppe
         target_amount = float(target_line.amount)
         target_type = target_line.type
         target_sign = target_line.sign
-        if abs(line_amount - target_amount) < tolerance and line_type == target_type:
-            #  if target_line.concept != line.concept and strict:
-            #  return False
-            if target_line.account.strip() != line.account.strip() and strict:
+        if (target_line.account.strip() in line.account.strip()
+                or line.account.strip() in target_line.account.strip()):
+
+            if not abs(line_amount - target_amount) < tolerance and line_type == target_type:
                 return False
             return target_line
         elif (diff := abs(line_amount - target_amount)) < tolerance_upper_bound and line_type == target_type and show_close_matches:
