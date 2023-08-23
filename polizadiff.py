@@ -196,10 +196,12 @@ def main(argv):
         poliza_fnames = os.listdir(poliza_vg)
         sorted_fnames = sorted(poliza_fnames)
         matches_by_day_by_acc = {}
+        diff_by_day_by_acc = {}
         all_accounts = set()
         # Iter through files in vg dir
         for vg_poliza_fname in sorted_fnames:
             # Extract poliza date stamp
+            current_date_stdout = io.StringIO("")
             poliza_date_stamp = extract_poliza_date_from_fname(vg_poliza_fname)
             if not poliza_date_stamp:
                 print(f"SKIP: {vg_poliza_fname}")
@@ -228,19 +230,26 @@ def main(argv):
                 all_accounts.add(tgt.account)
             for tgt, match in unmatched_lines:
                 all_accounts.add(tgt.account)
-            print(current_date.strftime("%a %d %b %Y"))
-            print(f"COMPARING: {vg_poliza_fname} vs. {target_vx_fname}")
-            print(err_msg)
-            matches, non_matches, _match_pctg = get_match_stats(
+            print(current_date.strftime("%a %d %b %Y"), file=current_date_stdout)
+            print(f"COMPARING: {vg_poliza_fname} vs. {target_vx_fname}", file=current_date_stdout)
+            print(err_msg, file=current_date_stdout)
+            matches, non_matches, match_pctg = get_match_stats(
                 matched_lines, unmatched_lines)
             candidates_list_non_matches.append(unmatched_lines)
             global_matches += matches
             global_non_matches += non_matches
 
+            if match_pctg < 1:
+                print(current_date_stdout.getvalue())
+
             matched_by_acc, unmatched_by_acc, _odd_amounts = get_matches_by_account(
                 lines_vg, lines_vx)
             # If an account is in neither, assume a match
             matches_by_acc = defaultdict(lambda: 0)
+            diffs_by_acc = dict()
+            diffs_by_acc.update(get_diffs_by_account(matched_by_acc))
+            diff_by_day_by_acc[current_date.strftime(
+                    "%d-%m-%Y")] = diffs_by_acc
             for tgt, src in matched_by_acc + unmatched_by_acc:
                 if src is None:
                     # No match
@@ -264,14 +273,19 @@ def main(argv):
         # Ensure constant ordering
         all_accounts = list(sorted(list(all_accounts)))
         report_fname = "REPORTE_MATCHES_POLIZA.csv"
-        #  breakpoint()
-        with open(report_fname, "w") as report:
+        diff_report_fname = "REPORTE_DIFFS_POLIZA.csv"
+        with open(report_fname, "w") as report, open(diff_report_fname, "w") as diffs:
             report_writer = csv.writer(report)
+            diff_writer = csv.writer(diffs)
             report_writer.writerow(["Fecha"] + all_accounts)
+            diff_writer.writerow(["Fecha"] + all_accounts)
             for day, day_acc_results in matches_by_day_by_acc.items():
                 day_results = [day] + [day_acc_results[account]
                                        for account in all_accounts]
                 report_writer.writerow(day_results)
+            for day, acc_diffs in diff_by_day_by_acc.items():
+                day_diffs = [day] + [acc_diffs.get(account, 0.0) for account in all_accounts]
+                diff_writer.writerow(day_diffs)
 
     else:
         print("ERROR: Unimplemented")
@@ -297,6 +311,13 @@ def get_matches_by_account(lines_src, lines_target):
         else:
             unmatched_lines.append((line_target, None))
     return matched_lines, unmatched_lines, _odd_amounts_buffer
+
+def get_diffs_by_account(matched_lines):
+    diffs_by_acc = dict()
+    for line, target in matched_lines:
+        diff =  float(line.sign + line.amount) - float(target.sign + target.amount)
+        diffs_by_acc[line.account] = diff
+    return diffs_by_acc
 
 
 def tabulate_results(matched_lines, unmatched_lines, odd_amounts_buffer, headers) -> tuple:
@@ -352,6 +373,10 @@ def line_has_match(line: PolizaLine, domain: list, tolerance=2.0, tolerance_uppe
         elif (diff := abs(line_amount - target_amount)) < tolerance_upper_bound and line_type == target_type and show_close_matches:
             log.warning("Concepts %s, %s close to matching by $%s",
                         target_line.concept, line.concept, diff)
+    # If no line was found, maybe the amount is very close to zero, so we can consider it a match within the tolerance level
+    if abs(line_amount) < tolerance:
+        new_line = PolizaLine(line.account, line.concept, line.sign, "0.0", line.type) 
+        return new_line
     return False
 
 
